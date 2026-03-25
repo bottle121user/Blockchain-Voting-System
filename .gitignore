@@ -1,0 +1,28 @@
+# Dependencies
+node_modules/
+.next/
+dist/
+build/
+artifacts/
+cache/
+
+# Environment Variables (SENSITIVE)
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Project Specific
+PROJECT_CREDENTIALS.txt
+compile_error.txt
+
+# Log Files
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# OS Files
+.DS_Store
+Thumbs.db
