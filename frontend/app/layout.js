@@ -10,7 +10,7 @@ export const metadata = {
 export default function RootLayout({ children }) {
   return (
     <html lang="en">
-      <body className="min-h-screen antialiased flex flex-col bg-[#020617]">
+      <body className="min-h-screen antialiased flex flex-col">
         {/* Navigation Bar */}
         <nav className="w-full h-20 border-b border-white/5 bg-[#020617]/80 backdrop-blur-xl flex items-center px-6 md:px-12 justify-between fixed top-0 z-[100]">
           <Link href="/" className="flex items-center gap-3 group">
