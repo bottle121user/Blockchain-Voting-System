@@ -89,16 +89,26 @@ The smart contract asserts `!hasVotedNullifier[electionId][nullifier]`. If a vot
 | On-Chain (EVM) | Off-Chain (PostgreSQL / SQLite) |
 | :--- | :--- |
 | Election State Machine (`CREATED` $\rightarrow$ `FINALIZED`) | User Accounts & Password Hashes (`bcrypt`) |
-| Candidate IDs & Verified Vote Counts | Election Titles, Descriptions & Candidate Bios |
+| Candidate IDs & Verified Vote Counts | Candidate Nomination Dossiers, Manifestos & Seconders |
 | Spent Nullifier Commitments | Hashed National ID Whitelist & Authorization Status |
 | Core Audit Events (`VoteCast`, `ElectionStateChanged`) | Transaction States (`PENDING`, `SUBMITTED`, `CONFIRMED`) |
 | Multi-Election Counters & Roles | Indexed Blockchain Event Cache for Fast Queries |
 
 ---
 
-## 6. End-to-End Blockchain Flow
+## 6. End-to-End Election & Candidacy Lifecycle
 
 ```text
+1. CANDIDACY NOMINATION & VETTING:
+Candidate Application (/nominate) ──► Age Check (>= 18) ──► Whitelist Verification (Candidate & 2 Seconders)
+                                                                 │
+Admin Review Queue (/admin) ◄────────────────────────────────────┘
+       │
+Approve & Mint ──► Relayer executes contract.addCandidate() on EVM
+       │
+Candidate recorded on immutable blockchain ledger & ballot prepared
+
+2. VOTING & AUDIT:
 Voter Login (ID + OTP)
        ↓
 Server Issues JWT with Voter Identifier Hash

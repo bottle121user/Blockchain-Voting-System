@@ -14,7 +14,8 @@ import {
   ChevronRight,
   Zap,
   ShieldCheck,
-  History
+  History,
+  Award
 } from 'lucide-react';
 import api from '../lib/api';
 
@@ -96,7 +97,7 @@ export default function LandingPage() {
         </div>
 
         {/* Action Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-8 w-full mb-32">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 w-full mb-32">
           {/* Voter Card */}
           <div onClick={() => router.push('/login')} className="group p-8 rounded-[2.5rem] bg-slate-900/40 border border-white/5 backdrop-blur-3xl hover:border-blue-500/30 transition-all cursor-pointer relative overflow-hidden">
             <div className="absolute top-0 right-0 p-8 opacity-5 group-hover:opacity-10 transition-opacity">
@@ -110,6 +111,23 @@ export default function LandingPage() {
               <p className="text-slate-400 font-medium leading-relaxed mb-6">Verify your citizenship via Aadhar secured protocol. Your vote remains encrypted and anonymous.</p>
               <div className="flex items-center text-blue-400 font-black text-sm gap-2">
                 ENTER PORTAL <ChevronRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
+              </div>
+            </div>
+          </div>
+
+          {/* Candidacy Card */}
+          <div onClick={() => router.push('/nominate')} className="group p-8 rounded-[2.5rem] bg-slate-900/40 border border-white/5 backdrop-blur-3xl hover:border-amber-500/30 transition-all cursor-pointer relative overflow-hidden">
+            <div className="absolute top-0 right-0 p-8 opacity-5 group-hover:opacity-10 transition-opacity">
+              <Award className="w-32 h-32 text-amber-400" />
+            </div>
+            <div className="relative z-10">
+              <div className="w-14 h-14 rounded-2xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center mb-6 group-hover:scale-110 transition-transform">
+                <Award className="w-7 h-7 text-amber-400" />
+              </div>
+              <h3 className="text-2xl font-black text-white mb-4">Candidate Portal</h3>
+              <p className="text-slate-400 font-medium leading-relaxed mb-6">Submit statutory nomination, upload manifesto, and secure registered seconders for vetting.</p>
+              <div className="flex items-center text-amber-400 font-black text-sm gap-2">
+                APPLY FOR OFFICE <ChevronRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
               </div>
             </div>
           </div>

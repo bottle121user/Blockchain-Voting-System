@@ -45,8 +45,9 @@ npm run dev
 | Portal | URL | Credentials | Purpose |
 | :--- | :--- | :--- | :--- |
 | **Public Landing Page** | [http://localhost:3000](http://localhost:3000) | Public Access | Overview, quick links, system status |
+| **Candidate Portal** | [http://localhost:3000/nominate](http://localhost:3000/nominate) | Public Access | Submit statutory nomination, manifesto & seconders |
 | **Voter Login** | [http://localhost:3000/login](http://localhost:3000/login) | **ID:** `123456789012`<br>**Token:** `123456` | Citizen authentication & ballot casting |
-| **Admin Terminal** | [http://localhost:3000/admin/login](http://localhost:3000/admin/login) | **User:** `admin`<br>**Password:** `admin123` | Create elections, add candidates, open/close polls |
+| **Admin Terminal** | [http://localhost:3000/admin/login](http://localhost:3000/admin/login) | **User:** `admin`<br>**Password:** `admin123` | Create elections, approve candidates, open/close polls |
 | **Public Results** | [http://localhost:3000/results](http://localhost:3000/results) | Public Access | Live candidate tallies, turnout %, winner banner |
 | **Public Audit Explorer** | [http://localhost:3000/audit](http://localhost:3000/audit) | Public Access | Live block stream, event inspector & ballot verifier |
 
@@ -125,6 +126,32 @@ If voter credentials or a voting machine are compromised during an active electi
 
 ---
 
+### Walkthrough E: Candidate Nomination & Statutory Eligibility Review
+
+ChainVote enforces strict statutory criteria before any candidate can run for election:
+
+1. **Candidate Eligibility Requirements:**
+   - **Age:** Must be at least 18 years old.
+   - **Voter Registration:** Must be an authorized, whitelisted voter for the specific election session.
+   - **Seconders / Endorsements:** Requires 2 distinct registered voters from the same election registry as seconders (self-seconding is strictly disallowed).
+   - **Manifesto & Declaration:** Must provide a minimum 20-character campaign agenda and sign the anti-fraud statutory Code of Conduct.
+
+2. **Submitting a Nomination Application:**
+   - Navigate to [http://localhost:3000/nominate](http://localhost:3000/nominate) (or click **Nominate** in the header).
+   - Select the target election session.
+   - Fill in: Full Name, Party Affiliation, Age, Candidate 12-Digit Digital ID, Seconder #1 ID, Seconder #2 ID, and Campaign Manifesto.
+   - Check the **Statutory Code of Conduct** box.
+   - Click **Submit Official Nomination**. The application enters the state `PENDING`.
+   - Candidates can track their live application status at any time using the **Application Status Tracker** at the bottom of the page.
+
+3. **Admin Review Queue & On-Chain Minting:**
+   - Sign in as Admin at `/admin/login` and navigate to the **Nominations** tab in the sidebar.
+   - View pending dossiers, including applicant age, party affiliation, seconders' verification status, and campaign manifesto.
+   - **Approve & Write to Blockchain:** Clicking this triggers the smart contract relayer to call `contract.addCandidate()`. The candidate is permanently minted to the Ethereum ledger, assigned an on-chain `candidateId`, and automatically added to the ballot for the upcoming election.
+   - **Reject with Reason:** If the manifesto violates guidelines or documents are fraudulent, enter a justification (e.g., *"Failed background check"*). The rejection and rationale are immutably logged to the relational audit trail.
+
+---
+
 ## 4. Useful Developer Commands
 
 All tests and automated verification scripts can be executed with single commands:
@@ -136,12 +163,12 @@ npx hardhat test test/VotingSystem.test.js
 ```
 *(Tests role-based access control, double-voting rejection, multi-election isolation, and emergency annulment/re-election protocol. 100% pass rate).*
 
-### Run Full End-to-End System Integration Test (16 Tests)
+### Run Full End-to-End System Integration Test (20 Tests)
 ```bash
 cd backend
 node scripts/test-complete-system.js
 ```
-*(Tests health checks, bcrypt login, election creation, candidate registration, voting, double-vote rejection, audit matching, emergency annulment, and linked re-election).*
+*(Tests health checks, bcrypt login, election creation, candidate registration, voting, double-vote rejection, audit matching, emergency annulment, linked re-election, statutory candidate nomination vetting, admin review queue, and on-chain blockchain candidate minting. 100% pass rate).*
 
 ### Run Real Performance Benchmark Suite
 ```bash

@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { BarChart3, Shield, Users, Plus, Play, Square, UserPlus, Loader2, Trophy, History, Search, CheckCircle, XCircle, LogOut, AlertTriangle, RotateCcw } from 'lucide-react';
+import { BarChart3, Shield, Users, Plus, Play, Square, UserPlus, Loader2, Trophy, History, Search, CheckCircle, XCircle, LogOut, AlertTriangle, RotateCcw, Award } from 'lucide-react';
 import api from '../../lib/api';
 
 export default function AdminDashboard() {
@@ -20,10 +20,12 @@ export default function AdminDashboard() {
   const [message, setMessage] = useState({ text: '', type: '' });
   const router = useRouter();
   
-  // New State for Polishing
+  // New State for Polishing & Nominations
   const [voters, setVoters] = useState([]);
   const [auditLog, setAuditLog] = useState([]);
-  const [activeTab, setActiveTab] = useState('results'); // 'results', 'voters', 'audit'
+  const [nominations, setNominations] = useState([]);
+  const [nominationFilter, setNominationFilter] = useState('ALL');
+  const [activeTab, setActiveTab] = useState('results'); // 'results', 'voters', 'nominations', 'audit'
   const [searchTerm, setSearchTerm] = useState('');
 
   const fetchData = async () => {
@@ -37,12 +39,18 @@ export default function AdminDashboard() {
       setCandidates(candRes.data);
       setElectionState(stateRes.data.state);
       setOnChainState(stateRes.data.onChainState ?? 0);
-      setElectionId(stateRes.data.electionId ?? 1);
+      const curId = stateRes.data.electionId ?? 1;
+      setElectionId(curId);
       setElectionName(stateRes.data.name ?? '');
       setAnnulmentReason(stateRes.data.annulmentReason ?? null);
       setParentElectionId(stateRes.data.parentElectionId ?? 0);
       setVoters(votersRes.data);
       setAuditLog(auditRes.data);
+
+      try {
+        const nomRes = await api.get(`/elections/${curId}/nominations`);
+        setNominations(nomRes.data || []);
+      } catch (_) {}
     } catch (err) {
       console.error("Failed to load dashboard data");
     } finally {
@@ -147,6 +155,38 @@ export default function AdminDashboard() {
       fetchData();
     } catch (err) {
       showMessage(err.response?.data?.details || err.response?.data?.error || "Failed to deploy re-election", "error");
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const handleApproveNomination = async (nominationId, candidateName) => {
+    if (!confirm(`Are you sure you want to approve ${candidateName} and permanently write their candidacy to the Ethereum blockchain?`)) return;
+    setActionLoading(`approve-${nominationId}`);
+    try {
+      const res = await api.post(`/elections/${electionId}/nominations/${nominationId}/approve`);
+      showMessage(`Candidate ${candidateName} approved and minted to blockchain! (Tx: ${res.data.txHash.substring(0, 16)}...)`, "success");
+      fetchData();
+    } catch (err) {
+      showMessage(err.response?.data?.details || err.response?.data?.error || "Failed to approve nomination on blockchain", "error");
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const handleRejectNomination = async (nominationId, candidateName) => {
+    const reason = prompt(`DISQUALIFICATION / REJECTION:\nPlease enter the reason for rejecting ${candidateName}'s nomination:`);
+    if (!reason || reason.trim().length < 5) {
+      if (reason !== null) alert("Rejection reason must be at least 5 characters.");
+      return;
+    }
+    setActionLoading(`reject-${nominationId}`);
+    try {
+      await api.post(`/elections/${electionId}/nominations/${nominationId}/reject`, { reason: reason.trim() });
+      showMessage(`Nomination for ${candidateName} rejected.`, "success");
+      fetchData();
+    } catch (err) {
+      showMessage(err.response?.data?.error || "Failed to reject nomination", "error");
     } finally {
       setActionLoading(null);
     }
@@ -347,6 +387,20 @@ export default function AdminDashboard() {
                 Voter Directory
             </button>
             <button 
+                onClick={() => setActiveTab('nominations')}
+                className={`w-full flex items-center justify-between p-5 rounded-2xl font-bold transition-all border ${activeTab === 'nominations' ? 'bg-blue-600 text-white border-blue-500 shadow-lg shadow-blue-500/20' : 'bg-slate-900/50 text-slate-400 border-slate-800 hover:border-slate-700'}`}
+            >
+                <div className="flex items-center gap-4">
+                  <Award className="w-6 h-6" />
+                  Nominations
+                </div>
+                {nominations.filter(n => n.status === 'PENDING').length > 0 && (
+                  <span className="px-2.5 py-0.5 rounded-full text-xs font-black bg-amber-400 text-black">
+                    {nominations.filter(n => n.status === 'PENDING').length}
+                  </span>
+                )}
+            </button>
+            <button 
                 onClick={() => setActiveTab('audit')}
                 className={`w-full flex items-center gap-4 p-5 rounded-2xl font-bold transition-all border ${activeTab === 'audit' ? 'bg-blue-600 text-white border-blue-500 shadow-lg shadow-blue-500/20' : 'bg-slate-900/50 text-slate-400 border-slate-800 hover:border-slate-700'}`}
             >
@@ -502,6 +556,111 @@ export default function AdminDashboard() {
                                     )}
                                 </tbody>
                             </table>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {activeTab === 'nominations' && (
+                <div className="animate-in fade-in slide-in-from-right-4 duration-500 space-y-6">
+                    <div className="glass-panel p-8 rounded-3xl shadow-xl border border-white/5 space-y-6">
+                        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                            <div>
+                                <h2 className="text-2xl font-black text-white">Candidate Nominations Review</h2>
+                                <p className="text-slate-400 text-sm">Review statutory eligibility, verify seconders, and mint approved candidates to the blockchain.</p>
+                            </div>
+                            <div className="flex gap-2 bg-black/40 p-1.5 rounded-2xl border border-white/5 w-fit">
+                                {['ALL', 'PENDING', 'APPROVED', 'REJECTED'].map((filter) => (
+                                    <button
+                                        key={filter}
+                                        onClick={() => setNominationFilter(filter)}
+                                        className={`px-4 py-2 rounded-xl text-xs font-bold transition-all ${
+                                            nominationFilter === filter
+                                                ? 'bg-blue-600 text-white shadow-md shadow-blue-900/30'
+                                                : 'text-slate-400 hover:text-white'
+                                        }`}
+                                    >
+                                        {filter} {filter === 'PENDING' && nominations.filter(n => n.status === 'PENDING').length > 0 && `(${nominations.filter(n => n.status === 'PENDING').length})`}
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+
+                        <div className="space-y-4">
+                            {nominations
+                                .filter(n => nominationFilter === 'ALL' || n.status === nominationFilter)
+                                .map((nom) => (
+                                    <div 
+                                        key={nom.id}
+                                        className="p-6 rounded-2xl bg-slate-900/60 border border-white/5 hover:border-blue-500/30 transition-all space-y-4"
+                                    >
+                                        <div className="flex flex-col md:flex-row md:items-start justify-between gap-4">
+                                            <div className="space-y-1">
+                                                <div className="flex items-center gap-3">
+                                                    <h3 className="text-lg font-black text-white">{nom.full_name}</h3>
+                                                    <span className={`px-3 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider ${
+                                                        nom.status === 'APPROVED' ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' :
+                                                        nom.status === 'REJECTED' ? 'bg-rose-500/20 text-rose-400 border border-rose-500/30' :
+                                                        'bg-amber-500/20 text-amber-400 border border-amber-500/30 animate-pulse'
+                                                    }`}>
+                                                        {nom.status}
+                                                    </span>
+                                                    {nom.candidate_index !== null && nom.candidate_index !== undefined && (
+                                                        <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-blue-500/10 text-blue-400 border border-blue-500/20 font-bold">
+                                                            Candidate #{nom.candidate_index}
+                                                        </span>
+                                                    )}
+                                                </div>
+                                                <p className="text-xs text-slate-400">
+                                                    Party: <strong className="text-indigo-400">{nom.party_affiliation}</strong> • Age: <strong>{nom.age}</strong> • Filed: {new Date(nom.created_at).toLocaleDateString()}
+                                                </p>
+                                            </div>
+
+                                            {nom.status === 'PENDING' && (
+                                                <div className="flex items-center gap-2">
+                                                    <button
+                                                        onClick={() => handleApproveNomination(nom.id, nom.full_name)}
+                                                        disabled={actionLoading === `approve-${nom.id}`}
+                                                        className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-emerald-600 to-emerald-500 hover:from-emerald-500 hover:to-emerald-400 text-white font-bold text-xs shadow-lg shadow-emerald-950/30 active:scale-95 transition-all flex items-center gap-2"
+                                                    >
+                                                        {actionLoading === `approve-${nom.id}` ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle className="w-4 h-4" />}
+                                                        Approve & Mint
+                                                    </button>
+                                                    <button
+                                                        onClick={() => handleRejectNomination(nom.id, nom.full_name)}
+                                                        disabled={actionLoading === `reject-${nom.id}`}
+                                                        className="px-4 py-2.5 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/30 font-bold text-xs transition-all active:scale-95"
+                                                    >
+                                                        Reject
+                                                    </button>
+                                                </div>
+                                            )}
+                                        </div>
+
+                                        <div className="p-4 rounded-xl bg-black/40 border border-white/5 text-xs text-slate-300 leading-relaxed font-sans">
+                                            <span className="text-[10px] font-black uppercase text-slate-500 block mb-1">Manifesto Platform Vision</span>
+                                            "{nom.manifesto}"
+                                        </div>
+
+                                        {nom.rejection_reason && (
+                                            <div className="p-3 rounded-xl bg-rose-950/30 border border-rose-800/30 text-xs text-rose-300 font-mono">
+                                                Rejection Reason: {nom.rejection_reason}
+                                            </div>
+                                        )}
+
+                                        {nom.blockchain_tx_hash && (
+                                            <div className="text-[10px] text-slate-500 font-mono truncate">
+                                                Blockchain Tx: <span className="text-emerald-400">{nom.blockchain_tx_hash}</span>
+                                            </div>
+                                        )}
+                                    </div>
+                                ))}
+
+                            {nominations.filter(n => nominationFilter === 'ALL' || n.status === nominationFilter).length === 0 && (
+                                <div className="text-center py-16 text-slate-500 italic text-xs">
+                                    No candidate nominations found for this election session.
+                                </div>
+                            )}
                         </div>
                     </div>
                 </div>

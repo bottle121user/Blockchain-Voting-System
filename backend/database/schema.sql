@@ -112,3 +112,26 @@ CREATE TABLE audit_logs (
 
 CREATE INDEX idx_audit_logs_action ON audit_logs(action);
 CREATE INDEX idx_audit_logs_created ON audit_logs(created_at);
+
+-- 8. Candidate Nominations Table (Vetting & Approval Pipeline)
+CREATE TABLE candidate_nominations (
+    id SERIAL PRIMARY KEY,
+    election_id INTEGER NOT NULL REFERENCES elections(id) ON DELETE CASCADE,
+    voter_identifier_hash VARCHAR(66) NOT NULL,
+    full_name VARCHAR(255) NOT NULL,
+    party_affiliation VARCHAR(100) NOT NULL DEFAULT 'INDEPENDENT',
+    manifesto TEXT NOT NULL,
+    age INTEGER NOT NULL CHECK (age >= 18),
+    seconder1_hash VARCHAR(66) NOT NULL,
+    seconder2_hash VARCHAR(66) NOT NULL,
+    status VARCHAR(30) NOT NULL DEFAULT 'PENDING' CHECK (status IN ('PENDING', 'APPROVED', 'REJECTED')),
+    rejection_reason TEXT,
+    candidate_index INTEGER,
+    blockchain_tx_hash VARCHAR(66),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    reviewed_at TIMESTAMP WITH TIME ZONE,
+    CONSTRAINT uq_election_nomination UNIQUE (election_id, voter_identifier_hash)
+);
+
+CREATE INDEX idx_nominations_election ON candidate_nominations(election_id);
+CREATE INDEX idx_nominations_status ON candidate_nominations(status);

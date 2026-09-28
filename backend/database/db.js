@@ -156,6 +156,27 @@ async function initializeDatabase() {
         );
     `);
 
+    await dbClient.query(`
+        CREATE TABLE IF NOT EXISTS candidate_nominations (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            election_id INTEGER NOT NULL REFERENCES elections(id) ON DELETE CASCADE,
+            voter_identifier_hash TEXT NOT NULL,
+            full_name TEXT NOT NULL,
+            party_affiliation TEXT NOT NULL DEFAULT 'INDEPENDENT',
+            manifesto TEXT NOT NULL,
+            age INTEGER NOT NULL CHECK (age >= 18),
+            seconder1_hash TEXT NOT NULL,
+            seconder2_hash TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'PENDING' CHECK (status IN ('PENDING', 'APPROVED', 'REJECTED')),
+            rejection_reason TEXT,
+            candidate_index INTEGER,
+            blockchain_tx_hash TEXT,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            reviewed_at DATETIME,
+            UNIQUE(election_id, voter_identifier_hash)
+        );
+    `);
+
     // Seed default admin user with secure bcrypt hash
     const adminCheck = await dbClient.query("SELECT id FROM users WHERE username = $1", ['admin']);
     if (adminCheck.rows.length === 0) {

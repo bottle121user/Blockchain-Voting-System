@@ -103,13 +103,20 @@ async function runFullSystemTest() {
         assert(cand0Votes === 1, `12. On-Chain Tally Verified (Dr. Jane Doe has exactly 1 confirmed vote)`);
 
         // Test 13: Event Indexer Verification
-        try { await axios.post(`${BASE_URL}/audit/sync`); } catch (_) {}
-        await new Promise(r => setTimeout(r, 1000));
-        const auditRes = await axios.get(`${BASE_URL}/elections/${electionId}/audit`);
-        assert(Array.isArray(auditRes.data) && auditRes.data.length >= 4, `13. Public Audit Trail retrieved (${auditRes.data.length} events indexed)`);
+        let auditEvents = [];
+        for (let attempt = 0; attempt < 8; attempt++) {
+            try { await axios.post(`${BASE_URL}/audit/sync`); } catch (_) {}
+            await new Promise(r => setTimeout(r, 1000));
+            const auditRes = await axios.get(`${BASE_URL}/elections/${electionId}/audit`);
+            auditEvents = auditRes.data;
+            if (auditEvents.length >= 4 && auditEvents.some(e => e.transactionHash === castTxHash || e.nullifier === castNullifier)) {
+                break;
+            }
+        }
+        assert(Array.isArray(auditEvents) && auditEvents.length >= 4, `13. Public Audit Trail retrieved (${auditEvents.length} events indexed)`);
 
         // Test 14: Public Ballot Verifier Simulation
-        const matchedAudit = auditRes.data.find(e => e.transactionHash === castTxHash || e.nullifier === castNullifier);
+        const matchedAudit = auditEvents.find(e => e.transactionHash === castTxHash || e.nullifier === castNullifier);
         assert(
             !!matchedAudit && matchedAudit.eventName === 'VoteCast',
             `14. Public Ballot Verifier Match: Proved Tx ${castTxHash.substring(0, 16)}... in Block #${matchedAudit?.blockNumber}`
@@ -123,6 +130,62 @@ async function runFullSystemTest() {
         const reElectRes = await axios.post(`${BASE_URL}/elections/${electionId}/re-elect`, { reason: 'Credential rotation and replacement completed' }, adminConfig);
         const newElectionId = reElectRes.data.newElectionId;
         assert(newElectionId > electionId && reElectRes.data.parentElectionId === electionId, `16. Linked Re-Election #${newElectionId} Spawned (Parent: #${electionId})`);
+
+        // Test 17: Statutory Candidate Nomination & Eligibility Vetting
+        const candVoterId = `7777${Math.floor(10000000 + Math.random() * 90000000)}`.substring(0, 12);
+        const sec1VoterId = `8888${Math.floor(10000000 + Math.random() * 90000000)}`.substring(0, 12);
+        const sec2VoterId = `9999${Math.floor(10000000 + Math.random() * 90000000)}`.substring(0, 12);
+        
+        // Whitelist candidate and seconders as registered voters
+        await axios.post(`${BASE_URL}/elections/${newElectionId}/voters`, { aadhar_number: candVoterId }, adminConfig);
+        await axios.post(`${BASE_URL}/elections/${newElectionId}/voters`, { aadhar_number: sec1VoterId }, adminConfig);
+        await axios.post(`${BASE_URL}/elections/${newElectionId}/voters`, { aadhar_number: sec2VoterId }, adminConfig);
+
+        // Sub-check: Reject under-age candidate
+        let underAgeRejected = false;
+        try {
+            await axios.post(`${BASE_URL}/elections/${newElectionId}/nominate`, {
+                aadhar_number: candVoterId,
+                full_name: 'Minor Applicant',
+                party_affiliation: 'YOUTH',
+                age: 17,
+                manifesto: 'Too young to run according to statutory law.',
+                seconder1_id: sec1VoterId,
+                seconder2_id: sec2VoterId,
+                code_of_conduct_accepted: true
+            });
+        } catch (err) {
+            if (err.response && err.response.status === 400) underAgeRejected = true;
+        }
+
+        // Legitimate submission
+        const nomRes = await axios.post(`${BASE_URL}/elections/${newElectionId}/nominate`, {
+            aadhar_number: candVoterId,
+            full_name: 'Senator Alice Walker',
+            party_affiliation: 'Progressive Alliance',
+            age: 34,
+            manifesto: 'Universal digital democracy, transparent governance, and cryptographically verified public accountability.',
+            seconder1_id: sec1VoterId,
+            seconder2_id: sec2VoterId,
+            code_of_conduct_accepted: true
+        });
+
+        assert(
+            underAgeRejected && nomRes.data.status === 'PENDING',
+            '17. Candidate Nomination submitted with statutory vetting (underage rejected, valid nomination queued as PENDING)'
+        );
+
+        // Test 18: Admin Review Queue & Blockchain Minting
+        const queueRes = await axios.get(`${BASE_URL}/elections/${newElectionId}/nominations`);
+        const targetNom = queueRes.data.find(n => n.full_name === 'Senator Alice Walker');
+        assert(!!targetNom, '18a. Nomination visible in Admin Review Queue');
+
+        const approveRes = await axios.post(`${BASE_URL}/elections/${newElectionId}/nominations/${targetNom.id}/approve`, {}, adminConfig);
+        assert(!!approveRes.data.txHash, `18b. Nomination approved and minted to Blockchain (Tx: ${approveRes.data.txHash.substring(0, 16)}...)`);
+
+        const newCandList = await axios.get(`${BASE_URL}/elections/${newElectionId}/candidates`);
+        const mintedCand = newCandList.data.find(c => c.name === 'Senator Alice Walker');
+        assert(!!mintedCand, `18c. Candidate verified on smart contract ledger (Index: ${mintedCand?.id ?? mintedCand?.candidate_index})`);
 
         console.log('\n----------------------------------------------------------------');
         console.log(`Test Execution Completed: ${passedTests} PASSED, ${failedTests} FAILED`);

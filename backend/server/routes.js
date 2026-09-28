@@ -376,6 +376,252 @@ router.post('/elections/:id/candidates', adminOnly, async (req, res) => {
     return addCandidateHandler(electionId, req.body.name, res);
 });
 
+router.post('/elections/:id/nominate', async (req, res) => {
+    const electionId = Number(req.params.id);
+    if (isNaN(electionId)) return res.status(400).json({ error: 'Invalid election ID' });
+
+    const schema = z.object({
+        full_name: z.string().min(3, 'Full name must be at least 3 characters').max(100),
+        party_affiliation: z.string().optional().default('INDEPENDENT'),
+        manifesto: z.string().min(20, 'Manifesto must be at least 20 characters').max(2000),
+        age: z.coerce.number().int().min(18, 'Candidate must be at least 18 years old'),
+        aadhar_number: z.string().min(12).max(12, 'National ID must be 12 digits'),
+        seconder1_id: z.string().min(12).max(12, 'Seconder #1 ID must be 12 digits'),
+        seconder2_id: z.string().min(12).max(12, 'Seconder #2 ID must be 12 digits'),
+        code_of_conduct_accepted: z.boolean().refine(val => val === true, 'You must accept the Code of Conduct')
+    });
+
+    const parsed = schema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: parsed.error.issues[0].message });
+
+    const { full_name, party_affiliation, manifesto, age, aadhar_number, seconder1_id, seconder2_id } = parsed.data;
+
+    if (aadhar_number === seconder1_id || aadhar_number === seconder2_id) {
+        return res.status(400).json({ error: 'Candidate cannot serve as their own seconder' });
+    }
+    if (seconder1_id === seconder2_id) {
+        return res.status(400).json({ error: 'Nomination requires two distinct seconders' });
+    }
+
+    try {
+        // 1. Verify election state
+        if (!contract) return res.status(500).json({ error: 'Blockchain not initialized' });
+        const election = await contract.getElection(electionId);
+        const stateNum = Number(election.state);
+        if (stateNum !== 0 && stateNum !== 1) { // 0: CREATED, 1: REGISTRATION
+            return res.status(400).json({ error: 'Candidate nomination is only allowed during CREATED or REGISTRATION phases' });
+        }
+
+        // 2. Verify Candidate is a registered voter
+        const candidateHash = crypto.createHash('sha256').update(aadhar_number).digest('hex');
+        const candCheck = await db.query(
+            'SELECT id FROM voter_authorizations WHERE election_id = $1 AND voter_identifier_hash = $2',
+            [electionId, candidateHash]
+        );
+        if (candCheck.rows.length === 0) {
+            return res.status(403).json({ error: 'Eligibility Rejection: You must be a registered, whitelisted voter for this election to apply as a candidate' });
+        }
+
+        // 3. Verify Seconder #1 is a registered voter
+        const seconder1Hash = crypto.createHash('sha256').update(seconder1_id).digest('hex');
+        const sec1Check = await db.query(
+            'SELECT id FROM voter_authorizations WHERE election_id = $1 AND voter_identifier_hash = $2',
+            [electionId, seconder1Hash]
+        );
+        if (sec1Check.rows.length === 0) {
+            return res.status(400).json({ error: 'Eligibility Rejection: Seconder #1 is not a registered voter in this election' });
+        }
+
+        // 4. Verify Seconder #2 is a registered voter
+        const seconder2Hash = crypto.createHash('sha256').update(seconder2_id).digest('hex');
+        const sec2Check = await db.query(
+            'SELECT id FROM voter_authorizations WHERE election_id = $1 AND voter_identifier_hash = $2',
+            [electionId, seconder2Hash]
+        );
+        if (sec2Check.rows.length === 0) {
+            return res.status(400).json({ error: 'Eligibility Rejection: Seconder #2 is not a registered voter in this election' });
+        }
+
+        // 5. Check duplicate nomination
+        const dupCheck = await db.query(
+            'SELECT id, status FROM candidate_nominations WHERE election_id = $1 AND voter_identifier_hash = $2',
+            [electionId, candidateHash]
+        );
+        if (dupCheck.rows.length > 0) {
+            return res.status(400).json({ error: `You have already submitted a nomination for this election (Current status: ${dupCheck.rows[0].status})` });
+        }
+
+        // 6. Record nomination
+        await db.query(
+            `INSERT INTO candidate_nominations 
+             (election_id, voter_identifier_hash, full_name, party_affiliation, manifesto, age, seconder1_hash, seconder2_hash, status)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'PENDING')`,
+            [electionId, candidateHash, full_name.trim(), party_affiliation.trim(), manifesto.trim(), age, seconder1Hash, seconder2Hash]
+        );
+
+        await db.query(
+            'INSERT INTO audit_logs (actor, action, details_json) VALUES ($1, $2, $3)',
+            [
+                candidateHash,
+                'CANDIDATE_NOMINATION_SUBMITTED',
+                JSON.stringify({ electionId, fullName: full_name, party: party_affiliation, age })
+            ]
+        );
+
+        res.json({
+            message: 'Candidate nomination submitted successfully and is under official review',
+            electionId,
+            fullName: full_name,
+            status: 'PENDING'
+        });
+    } catch (err) {
+        console.error('Candidate nomination error:', err);
+        res.status(500).json({ error: 'Failed to submit candidate nomination', details: err.message });
+    }
+});
+
+router.get('/elections/:id/nominations', async (req, res) => {
+    const electionId = Number(req.params.id);
+    if (isNaN(electionId)) return res.status(400).json({ error: 'Invalid election ID' });
+
+    try {
+        const result = await db.query(
+            `SELECT id, election_id, full_name, party_affiliation, manifesto, age, status, rejection_reason, candidate_index, blockchain_tx_hash, created_at, reviewed_at
+             FROM candidate_nominations 
+             WHERE election_id = $1 
+             ORDER BY created_at DESC`,
+            [electionId]
+        );
+        res.json(result.rows);
+    } catch (err) {
+        console.error('Error fetching nominations:', err);
+        res.status(500).json({ error: 'Failed to fetch candidate nominations' });
+    }
+});
+
+router.post('/elections/:id/nominations/:nominationId/approve', adminOnly, async (req, res) => {
+    const electionId = Number(req.params.id);
+    const nominationId = Number(req.params.nominationId);
+    if (isNaN(electionId) || isNaN(nominationId)) return res.status(400).json({ error: 'Invalid IDs' });
+
+    try {
+        const nomCheck = await db.query(
+            'SELECT * FROM candidate_nominations WHERE id = $1 AND election_id = $2',
+            [nominationId, electionId]
+        );
+        if (nomCheck.rows.length === 0) return res.status(404).json({ error: 'Nomination not found' });
+        const nomination = nomCheck.rows[0];
+
+        if (nomination.status !== 'PENDING') {
+            return res.status(400).json({ error: `Nomination is already ${nomination.status}` });
+        }
+
+        if (!contract) return res.status(500).json({ error: 'Blockchain not initialized' });
+
+        // Submit to smart contract on blockchain
+        const tx = await nonceManager.enqueue(async (nonce) => {
+            return await contract.addCandidate(electionId, nomination.full_name, { nonce });
+        });
+
+        await db.query(
+            'INSERT INTO transactions (election_id, tx_hash, tx_type, status) VALUES ($1, $2, $3, $4)',
+            [electionId, tx.hash, 'APPROVE_CANDIDATE', 'SUBMITTED']
+        );
+
+        const receipt = await tx.wait();
+        const candidates = await contract.getCandidates(electionId);
+        const candidateIndex = candidates.length - 1;
+
+        // Insert into candidates table
+        await db.query(
+            `INSERT OR IGNORE INTO candidates (election_id, candidate_index, name)
+             VALUES ($1, $2, $3)`,
+            [electionId, candidateIndex, nomination.full_name]
+        );
+
+        // Update nomination record
+        await db.query(
+            `UPDATE candidate_nominations 
+             SET status = 'APPROVED', candidate_index = $1, blockchain_tx_hash = $2, reviewed_at = CURRENT_TIMESTAMP 
+             WHERE id = $3`,
+            [candidateIndex, tx.hash, nominationId]
+        );
+
+        await db.query(
+            'INSERT INTO audit_logs (actor, action, details_json) VALUES ($1, $2, $3)',
+            [
+                req.user?.username || 'ADMIN',
+                'CANDIDATE_NOMINATION_APPROVED_ON_CHAIN',
+                JSON.stringify({ electionId, nominationId, candidateIndex, name: nomination.full_name, txHash: tx.hash, blockNumber: receipt.blockNumber })
+            ]
+        );
+
+        res.json({
+            message: `Candidate ${nomination.full_name} approved and permanently minted to blockchain ledger`,
+            electionId,
+            candidateIndex,
+            txHash: tx.hash,
+            blockNumber: receipt.blockNumber
+        });
+    } catch (err) {
+        console.error('Approve nomination error:', err);
+        res.status(500).json({ error: 'Failed to approve candidate nomination on blockchain', details: err.message });
+    }
+});
+
+router.post('/elections/:id/nominations/:nominationId/reject', adminOnly, async (req, res) => {
+    const electionId = Number(req.params.id);
+    const nominationId = Number(req.params.nominationId);
+    if (isNaN(electionId) || isNaN(nominationId)) return res.status(400).json({ error: 'Invalid IDs' });
+
+    const schema = z.object({
+        reason: z.string().min(5, 'Rejection justification must be at least 5 characters')
+    });
+    const parsed = schema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: parsed.error.issues[0].message });
+
+    const { reason } = parsed.data;
+
+    try {
+        const nomCheck = await db.query(
+            'SELECT * FROM candidate_nominations WHERE id = $1 AND election_id = $2',
+            [nominationId, electionId]
+        );
+        if (nomCheck.rows.length === 0) return res.status(404).json({ error: 'Nomination not found' });
+        const nomination = nomCheck.rows[0];
+
+        if (nomination.status !== 'PENDING') {
+            return res.status(400).json({ error: `Nomination is already ${nomination.status}` });
+        }
+
+        await db.query(
+            `UPDATE candidate_nominations 
+             SET status = 'REJECTED', rejection_reason = $1, reviewed_at = CURRENT_TIMESTAMP 
+             WHERE id = $2`,
+            [reason, nominationId]
+        );
+
+        await db.query(
+            'INSERT INTO audit_logs (actor, action, details_json) VALUES ($1, $2, $3)',
+            [
+                req.user?.username || 'ADMIN',
+                'CANDIDATE_NOMINATION_REJECTED',
+                JSON.stringify({ electionId, nominationId, name: nomination.full_name, reason })
+            ]
+        );
+
+        res.json({
+            message: 'Candidate nomination rejected with documented justification',
+            electionId,
+            nominationId,
+            reason
+        });
+    } catch (err) {
+        console.error('Reject nomination error:', err);
+        res.status(500).json({ error: 'Failed to reject nomination', details: err.message });
+    }
+});
+
 router.post('/elections/:id/open', adminOnly, async (req, res) => {
     const electionId = Number(req.params.id);
 
