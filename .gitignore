@@ -8,10 +8,15 @@ cache/
 
 # Environment Variables (SENSITIVE)
 .env
-.env.local
-.env.development.local
-.env.test.local
-.env.production.local
+.env.*
+!.env.example
+
+# Local Database Files
+*.sqlite
+*.sqlite3
+*.db
+backend/server/chainvote.sqlite
+backend/server/database.sqlite
 
 # Project Specific
 PROJECT_CREDENTIALS.txt

@@ -1,6 +1,6 @@
 import './globals.css'
 import Link from 'next/link'
-import { ShieldAlert, Fingerprint, LayoutDashboard, BarChart3, Home } from 'lucide-react'
+import { ShieldAlert, Fingerprint, LayoutDashboard, BarChart3, Home, History } from 'lucide-react'
 
 export const metadata = {
   title: 'ChainVote | Blockchain Voting System',
@@ -34,6 +34,9 @@ export default function RootLayout({ children }) {
             </Link>
             <Link href="/results" className="text-sm font-bold text-slate-400 hover:text-white transition-colors flex items-center gap-2">
               <BarChart3 className="w-4 h-4" /> Results
+            </Link>
+            <Link href="/audit" className="text-sm font-bold text-slate-400 hover:text-white transition-colors flex items-center gap-2">
+              <History className="w-4 h-4 text-emerald-400" /> Public Audit
             </Link>
           </div>
 

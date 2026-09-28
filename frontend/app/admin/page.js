@@ -2,13 +2,18 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { BarChart3, Shield, Users, Plus, Play, Square, UserPlus, Loader2, Trophy, History, Search, CheckCircle, XCircle, LogOut } from 'lucide-react';
+import { BarChart3, Shield, Users, Plus, Play, Square, UserPlus, Loader2, Trophy, History, Search, CheckCircle, XCircle, LogOut, AlertTriangle, RotateCcw } from 'lucide-react';
 import api from '../../lib/api';
 
 export default function AdminDashboard() {
   const [candidates, setCandidates] = useState([]);
   const [loading, setLoading] = useState(true);
   const [electionState, setElectionState] = useState(0); // 0: NotStarted, 1: Ongoing, 2: Ended
+  const [onChainState, setOnChainState] = useState(0); // 0: CREATED, 1: REGISTRATION, 2: OPEN, 3: CLOSED, 4: FINALIZED, 5: ANNULLED
+  const [electionId, setElectionId] = useState(1);
+  const [electionName, setElectionName] = useState('');
+  const [annulmentReason, setAnnulmentReason] = useState(null);
+  const [parentElectionId, setParentElectionId] = useState(0);
   const [newCandidate, setNewCandidate] = useState('');
   const [newVoter, setNewVoter] = useState('');
   const [actionLoading, setActionLoading] = useState(null);
@@ -31,6 +36,11 @@ export default function AdminDashboard() {
       ]);
       setCandidates(candRes.data);
       setElectionState(stateRes.data.state);
+      setOnChainState(stateRes.data.onChainState ?? 0);
+      setElectionId(stateRes.data.electionId ?? 1);
+      setElectionName(stateRes.data.name ?? '');
+      setAnnulmentReason(stateRes.data.annulmentReason ?? null);
+      setParentElectionId(stateRes.data.parentElectionId ?? 0);
       setVoters(votersRes.data);
       setAuditLog(auditRes.data);
     } catch (err) {
@@ -106,13 +116,49 @@ export default function AdminDashboard() {
     }
   };
 
+  const handleAnnulElection = async () => {
+    const reason = prompt("EMERGENCY AUDIT PROTOCOL:\nPlease enter the reason for annulling this election (e.g. 'Voter credentials leaked in precinct B'):");
+    if (!reason || reason.trim().length < 5) {
+      if (reason !== null) alert("Annulment reason must be at least 5 characters.");
+      return;
+    }
+    setActionLoading('annul');
+    try {
+      await api.post(`/elections/${electionId}/annul`, { reason: reason.trim() });
+      showMessage("Emergency Annulment successfully executed on Ethereum ledger!", "success");
+      fetchData();
+    } catch (err) {
+      showMessage(err.response?.data?.details || err.response?.data?.error || "Failed to annul election", "error");
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const handleReElect = async () => {
+    const reason = prompt("RE-ELECTION PROTOCOL:\nPlease enter the re-election justification (e.g. 'Fresh credential distribution and nullifier rotation completed'):");
+    if (!reason || reason.trim().length < 5) {
+      if (reason !== null) alert("Re-election justification must be at least 5 characters.");
+      return;
+    }
+    setActionLoading('re-elect');
+    try {
+      const res = await api.post(`/elections/${electionId}/re-elect`, { reason: reason.trim() });
+      showMessage(`Linked Re-Election Session #${res.data.newElectionId} spawned successfully on blockchain!`, "success");
+      fetchData();
+    } catch (err) {
+      showMessage(err.response?.data?.details || err.response?.data?.error || "Failed to deploy re-election", "error");
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
   const totalVotes = candidates.reduce((acc, curr) => acc + parseInt(curr.voteCount), 0);
   const stateLabels = ["Not Started", "Ongoing", "Ended"];
   const stateColors = ["text-amber-400", "text-emerald-400", "text-red-400"];
 
   // Determine winner
   const sortedCandidates = [...candidates].sort((a, b) => parseInt(b.voteCount) - parseInt(a.voteCount));
-  const winner = electionState === 2 && sortedCandidates.length > 0 ? sortedCandidates[0] : null;
+  const winner = electionState === 2 && onChainState !== 5 && sortedCandidates.length > 0 ? sortedCandidates[0] : null;
 
   const filteredVoters = voters.filter(v => v.hashed_aadhar.toLowerCase().includes(searchTerm.toLowerCase()));
 
@@ -123,18 +169,30 @@ export default function AdminDashboard() {
         <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-blue-500 via-purple-500 to-emerald-500"></div>
         
         <div className="flex items-center gap-6 relative z-10">
-            <div className={`p-4 rounded-2xl bg-opacity-10 backdrop-blur-md border border-white/10 ${electionState === 1 ? 'bg-emerald-500 text-emerald-400 shadow-emerald-500/20 shadow-lg' : 'bg-blue-500 text-blue-400 shadow-blue-500/20 shadow-lg'}`}>
+            <div className={`p-4 rounded-2xl bg-opacity-10 backdrop-blur-md border border-white/10 ${onChainState === 5 ? 'bg-rose-500 text-rose-400 shadow-rose-500/20 shadow-lg' : electionState === 1 ? 'bg-emerald-500 text-emerald-400 shadow-emerald-500/20 shadow-lg' : 'bg-blue-500 text-blue-400 shadow-blue-500/20 shadow-lg'}`}>
                 <Shield className="w-10 h-10" />
             </div>
             <div>
-                <h1 className="text-3xl font-black tracking-tight text-white">Central Election Control</h1>
+                <div className="flex items-center gap-3">
+                  <h1 className="text-3xl font-black tracking-tight text-white">{electionName || `Election #${electionId}`}</h1>
+                  {parentElectionId > 0 && (
+                    <span className="text-[10px] font-bold px-2.5 py-1 rounded-full bg-indigo-500/20 text-indigo-400 border border-indigo-500/30">
+                      Re-Election of #{parentElectionId}
+                    </span>
+                  )}
+                </div>
                 <p className="text-slate-400 flex items-center gap-2 mt-1">
-                    System Phase: <span className={`font-bold px-3 py-0.5 rounded-full text-xs border border-current ${stateColors[electionState]}`}>{stateLabels[electionState]}</span>
+                    System Phase: {onChainState === 5 ? (
+                      <span className="font-bold px-3 py-0.5 rounded-full text-xs border border-rose-500/50 bg-rose-500/10 text-rose-400">ANNULLED & FROZEN</span>
+                    ) : (
+                      <span className={`font-bold px-3 py-0.5 rounded-full text-xs border border-current ${stateColors[electionState]}`}>{stateLabels[electionState]}</span>
+                    )}
+                    <span className="text-xs text-slate-500 font-mono">• Session #{electionId}</span>
                 </p>
             </div>
         </div>
         
-        <div className="flex gap-4 relative z-10 items-center">
+        <div className="flex gap-3 relative z-10 items-center flex-wrap">
             <button 
                 onClick={handleAdminLogout}
                 className="p-3.5 rounded-2xl bg-white/5 text-slate-400 hover:bg-white/10 hover:text-white transition-all border border-white/10"
@@ -143,7 +201,30 @@ export default function AdminDashboard() {
                 <LogOut className="w-5 h-5" />
             </button>
 
-            {electionState === 0 && (
+            {onChainState !== 5 && onChainState < 4 && (
+                <button 
+                    onClick={handleAnnulElection}
+                    disabled={actionLoading === 'annul'}
+                    className="flex items-center gap-2 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/30 px-5 py-3 rounded-2xl font-bold text-xs transition-all active:scale-95"
+                    title="Emergency Invalidation & Forensic Lock"
+                >
+                    {actionLoading === 'annul' ? <Loader2 className="w-4 h-4 animate-spin" /> : <AlertTriangle className="w-4 h-4" />}
+                    Emergency Annul
+                </button>
+            )}
+
+            {onChainState === 5 && (
+                <button 
+                    onClick={handleReElect}
+                    disabled={actionLoading === 're-elect'}
+                    className="flex items-center gap-2 bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-500 hover:to-blue-500 text-white px-6 py-3 rounded-2xl font-black text-xs transition-all shadow-xl shadow-indigo-900/30 active:scale-95"
+                >
+                    {actionLoading === 're-elect' ? <Loader2 className="w-4 h-4 animate-spin" /> : <RotateCcw className="w-4 h-4" />}
+                    Deploy Linked Re-Election
+                </button>
+            )}
+
+            {electionState === 0 && onChainState !== 5 && (
                 <button 
                     onClick={() => handleElectionAction('start')}
                     disabled={actionLoading === 'start' || candidates.length < 2}
@@ -153,7 +234,7 @@ export default function AdminDashboard() {
                     Launch Election
                 </button>
             )}
-            {electionState === 1 && (
+            {electionState === 1 && onChainState !== 5 && (
                 <button 
                     onClick={() => handleElectionAction('end')}
                     disabled={actionLoading === 'end'}
@@ -163,13 +244,49 @@ export default function AdminDashboard() {
                     Close Polls
                 </button>
             )}
-            {electionState === 2 && (
+            {electionState === 2 && onChainState !== 5 && (
                 <div className="bg-slate-800/80 backdrop-blur-md text-slate-400 px-8 py-3.5 rounded-2xl font-black border border-slate-700/50 shadow-inner">
                     Election Completed
                 </div>
             )}
+            {onChainState === 5 && (
+                <div className="bg-rose-950/60 backdrop-blur-md text-rose-400 px-5 py-3 rounded-2xl font-black border border-rose-800/50 shadow-inner flex items-center gap-2 text-xs">
+                    <XCircle className="w-4 h-4" /> Annulled & Frozen
+                </div>
+            )}
         </div>
       </div>
+
+      {/* Forensic Incident Banner for Annulled Election */}
+      {onChainState === 5 && (
+        <div className="glass-panel p-6 rounded-3xl border border-rose-500/40 bg-gradient-to-r from-rose-950/40 via-red-950/20 to-rose-950/40 shadow-2xl space-y-4 animate-in fade-in duration-300">
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+            <div className="flex items-center gap-4">
+              <div className="p-3 bg-rose-500/20 text-rose-400 rounded-2xl border border-rose-500/30">
+                <AlertTriangle className="w-8 h-8" />
+              </div>
+              <div>
+                <span className="text-xs font-black uppercase tracking-widest text-rose-400">Forensic Audit Incident Lock</span>
+                <h3 className="text-xl md:text-2xl font-black text-white">Election #{electionId} Was Annulled</h3>
+                <p className="text-sm text-slate-300 mt-1">
+                  Documented Justification: <strong className="text-rose-300 font-medium italic">"{annulmentReason || 'Security Invalidation'}"</strong>
+                </p>
+              </div>
+            </div>
+            <button
+              onClick={handleReElect}
+              disabled={actionLoading === 're-elect'}
+              className="flex items-center gap-2 px-6 py-3 rounded-2xl bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-500 hover:to-blue-500 text-white font-bold text-xs shadow-xl shadow-indigo-900/30 active:scale-95 transition-all whitespace-nowrap"
+            >
+              {actionLoading === 're-elect' ? <Loader2 className="w-4 h-4 animate-spin" /> : <RotateCcw className="w-4 h-4" />}
+              Deploy Linked Re-Election
+            </button>
+          </div>
+          <p className="text-xs text-slate-400 font-mono">
+            Audit Trail Preserved: All cast nullifiers and block logs remain immutably archived on the Ethereum ledger for historical audit. The re-election protocol will clone candidate rosters while issuing fresh single-vote invariants.
+          </p>
+        </div>
+      )}
 
       {message.text && (
         <div className={`p-5 rounded-2xl border flex items-center gap-3 ${message.type === 'success' ? 'bg-emerald-500/10 border-emerald-500/50 text-emerald-400 shadow-lg shadow-emerald-500/10' : 'bg-red-500/10 border-red-500/50 text-red-400 shadow-lg shadow-red-500/10'} animate-in fade-in slide-in-from-top-4 duration-500`}>
@@ -203,9 +320,9 @@ export default function AdminDashboard() {
                 </div>
                 
                 <div className="flex flex-col items-center md:items-end relative z-10">
-                    <p className="text-slate-400 text-xs font-mono mb-2 uppercase italic">Verified Blockchain Hash</p>
+                    <p className="text-slate-400 text-xs font-mono mb-2 uppercase italic">Verified Ledger Event</p>
                     <div className="bg-black/40 backdrop-blur-md px-6 py-4 rounded-2xl border border-white/5 font-mono text-emerald-400/80 text-sm break-all max-w-[300px] text-right">
-                        0x7a...{Math.random().toString(36).substring(7)}
+                        {auditLog.length > 0 ? `${auditLog[0].transactionHash?.substring(0, 16)}...` : 'On-Chain Validated'}
                     </div>
                 </div>
             </div>

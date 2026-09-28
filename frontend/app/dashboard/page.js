@@ -178,7 +178,7 @@ records.
 
                 <div className="mt-10 flex gap-4 relative z-10">
                     <div className="bg-white/5 px-6 py-2 rounded-full border border-white/10 text-white font-bold text-sm">
-                        TOTAL RECOVERY COMPLETION: 100%
+                        ELECTION STATUS: FINAL TALLY VERIFIED ON LEDGER
                     </div>
                 </div>
             </div>

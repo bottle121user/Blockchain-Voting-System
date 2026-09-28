@@ -74,7 +74,7 @@ export default function LandingPage() {
             Secure the <span className="text-transparent bg-clip-text bg-gradient-to-r from-blue-400 via-indigo-400 to-emerald-400">Future</span> of Democracy
           </h1>
           <p className="text-xl md:text-2xl text-slate-400 font-medium tracking-tight leading-relaxed max-w-2xl mx-auto animate-in fade-in slide-in-from-bottom-12 duration-1000 delay-200">
-            A decentralized, tamper-proof voting infrastructure powered by Ethereum blockchain and zero-knowledge principles.
+            A transparent voting infrastructure combining Ethereum smart contract immutability with cryptographic nullifiers and real-time event indexing.
           </p>
           
           <div className="flex flex-wrap justify-center gap-6 pt-4 animate-in fade-in slide-in-from-bottom-16 duration-1000 delay-500">
@@ -132,7 +132,7 @@ export default function LandingPage() {
           </div>
 
           {/* Transparency Card */}
-          <div onClick={() => router.push('/results')} className="group p-8 rounded-[2.5rem] bg-slate-900/40 border border-white/5 backdrop-blur-3xl hover:border-indigo-500/30 transition-all cursor-pointer relative overflow-hidden">
+          <div onClick={() => router.push('/audit')} className="group p-8 rounded-[2.5rem] bg-slate-900/40 border border-white/5 backdrop-blur-3xl hover:border-indigo-500/30 transition-all cursor-pointer relative overflow-hidden">
             <div className="absolute top-0 right-0 p-8 opacity-5 group-hover:opacity-10 transition-opacity">
               <Globe className="w-32 h-32 text-indigo-400" />
             </div>
@@ -140,10 +140,10 @@ export default function LandingPage() {
               <div className="w-14 h-14 rounded-2xl bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center mb-6 group-hover:scale-110 transition-transform">
                 <Globe className="w-7 h-7 text-indigo-400" />
               </div>
-              <h3 className="text-2xl font-black text-white mb-4">Public Ledger</h3>
-              <p className="text-slate-400 font-medium leading-relaxed mb-6">Inspect real-time analytics and the blockchain audit trail for maximum transparency and trust.</p>
+              <h3 className="text-2xl font-black text-white mb-4">Public Audit Ledger</h3>
+              <p className="text-slate-400 font-medium leading-relaxed mb-6">Inspect live on-chain event streams and verify individual ballot inclusion on the Ethereum virtual machine.</p>
               <div className="flex items-center text-indigo-400 font-black text-sm gap-2">
-                VIEW AUDIT <ChevronRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
+                OPEN PUBLIC AUDIT <ChevronRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
               </div>
             </div>
           </div>
@@ -162,9 +162,9 @@ export default function LandingPage() {
               <div className="space-y-4">
                  <div className="flex items-center gap-2 text-emerald-400">
                     <ShieldCheck className="w-5 h-5 fill-emerald-400/20" />
-                    <span className="font-black text-sm uppercase tracking-widest">Security</span>
+                    <span className="font-black text-sm uppercase tracking-widest">Integrity</span>
                  </div>
-                 <p className="text-slate-500 text-sm font-medium">Cryptographic zero-knowledge proofs ensure total voter privacy.</p>
+                 <p className="text-slate-500 text-sm font-medium">Cryptographic nullifiers strictly enforce single-vote rules on-chain.</p>
               </div>
               <div className="space-y-4">
                  <div className="flex items-center gap-2 text-indigo-400">
