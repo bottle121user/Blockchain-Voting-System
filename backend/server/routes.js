@@ -625,6 +625,16 @@ router.get('/elections/:id/audit', async (req, res) => {
     return getAuditLog(electionId, res);
 });
 
+router.post('/audit/sync', async (req, res) => {
+    try {
+        const indexer = require('../indexer/indexer');
+        await indexer.syncHistoricalEvents();
+        res.json({ message: 'Audit synchronization complete' });
+    } catch (err) {
+        res.status(500).json({ error: 'Sync failed', details: err.message });
+    }
+});
+
 router.get('/elections/:id/voters', adminOnly, async (req, res) => {
     const electionId = Number(req.params.id);
     try {

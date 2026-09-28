@@ -103,7 +103,8 @@ async function runFullSystemTest() {
         assert(cand0Votes === 1, `12. On-Chain Tally Verified (Dr. Jane Doe has exactly 1 confirmed vote)`);
 
         // Test 13: Event Indexer Verification
-        await new Promise(r => setTimeout(r, 4000)); // Allow indexer polling cycle
+        try { await axios.post(`${BASE_URL}/audit/sync`); } catch (_) {}
+        await new Promise(r => setTimeout(r, 1000));
         const auditRes = await axios.get(`${BASE_URL}/elections/${electionId}/audit`);
         assert(Array.isArray(auditRes.data) && auditRes.data.length >= 4, `13. Public Audit Trail retrieved (${auditRes.data.length} events indexed)`);
 

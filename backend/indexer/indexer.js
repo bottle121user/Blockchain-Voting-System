@@ -49,7 +49,17 @@ class EventIndexer {
             
             // Find highest indexed block number in DB
             const res = await db.query('SELECT MAX(block_number) as max_block FROM blockchain_events');
-            const fromBlock = (res.rows[0] && res.rows[0].max_block) ? Number(res.rows[0].max_block) + 1 : 0;
+            let fromBlock = 0;
+            if (res.rows[0] && res.rows[0].max_block !== null) {
+                const maxBlock = Number(res.rows[0].max_block);
+                if (maxBlock <= currentBlock) {
+                    fromBlock = maxBlock;
+                } else {
+                    console.log(`[Indexer] Node block height (${currentBlock}) is lower than recorded max block (${maxBlock}). Resetting indexer boundary to 0.`);
+                    await db.query('DELETE FROM blockchain_events');
+                    fromBlock = 0;
+                }
+            }
 
             if (fromBlock <= currentBlock) {
                 const events = await this.contract.queryFilter('*', fromBlock, currentBlock);
@@ -92,8 +102,12 @@ class EventIndexer {
         const args = event.args;
         let electionId = null;
 
-        if (args && args.electionId !== undefined) {
-            electionId = Number(args.electionId);
+        if (args) {
+            if (args.electionId !== undefined) {
+                electionId = Number(args.electionId);
+            } else if (args[0] !== undefined) {
+                electionId = Number(args[0]);
+            }
         }
 
         const contractAddress = await this.contract.getAddress();
@@ -115,15 +129,15 @@ class EventIndexer {
                 [electionId, name, desc, 'CREATED', contractAddress, txHash, parentId]
             );
         } else if (eventName === 'CandidateAdded') {
-            const candidateId = Number(args.candidateId);
-            const candidateName = args.name;
+            const candidateId = args.candidateId !== undefined ? Number(args.candidateId) : Number(args[1]);
+            const candidateName = args.name || args[2];
             await db.query(
                 `INSERT OR IGNORE INTO candidates (election_id, candidate_index, name)
                  VALUES ($1, $2, $3)`,
                 [electionId, candidateId, candidateName]
             );
         } else if (eventName === 'ElectionStateChanged') {
-            const newStateIdx = Number(args.newState);
+            const newStateIdx = args.newState !== undefined ? Number(args.newState) : Number(args[2]);
             const newStateName = STATE_NAMES[newStateIdx] || 'CREATED';
             
             let timeCol = null;
@@ -138,8 +152,8 @@ class EventIndexer {
 
             await db.query(updateSql, [newStateName, electionId]);
         } else if (eventName === 'ElectionAnnulled') {
-            const reason = args.reason;
-            const authority = args.authority;
+            const reason = args.reason || args[1];
+            const authority = args.authority || args[2];
             await db.query(
                 `UPDATE elections 
                  SET state = 'ANNULLED', annulment_reason = $1, closed_at = CURRENT_TIMESTAMP 
@@ -156,7 +170,10 @@ class EventIndexer {
                 ]
             );
         } else if (eventName === 'VoteCast') {
-            const nullifier = args.nullifier;
+            const candidateId = args.candidateId !== undefined ? Number(args.candidateId) : Number(args[1]);
+            const nullifier = args.nullifier || args[2];
+            const submitter = args.submitter || args[3];
+
             // Update voter authorization status if matched
             await db.query(
                 `UPDATE voter_authorizations 
@@ -178,9 +195,9 @@ class EventIndexer {
                 `INSERT INTO audit_logs (actor, action, details_json)
                  VALUES ($1, $2, $3)`,
                 [
-                    args.submitter,
+                    submitter,
                     'VOTE_CONFIRMED_ON_CHAIN',
-                    JSON.stringify({ electionId, candidateId: Number(args.candidateId), nullifier, txHash, blockNumber })
+                    JSON.stringify({ electionId, candidateId, nullifier, txHash, blockNumber })
                 ]
             );
         }
@@ -188,21 +205,28 @@ class EventIndexer {
         // 2. Insert into blockchain_events index
         let payload = {};
         if (args) {
-            try {
-                const rawObj = args.toObject ? args.toObject() : args;
-                for (const [k, v] of Object.entries(rawObj)) {
-                    if (isNaN(k)) {
-                        payload[k] = typeof v === 'bigint' ? v.toString() : v;
+            if (event.fragment && event.fragment.inputs) {
+                event.fragment.inputs.forEach((input, idx) => {
+                    const val = args[input.name] !== undefined ? args[input.name] : args[idx];
+                    payload[input.name] = typeof val === 'bigint' ? val.toString() : val;
+                });
+            } else {
+                try {
+                    const rawObj = args.toObject ? args.toObject() : args;
+                    for (const [k, v] of Object.entries(rawObj)) {
+                        if (isNaN(k)) {
+                            payload[k] = typeof v === 'bigint' ? v.toString() : v;
+                        }
                     }
-                }
-            } catch (_) {
-                if (event.fragment && event.fragment.inputs) {
-                    event.fragment.inputs.forEach((input, idx) => {
-                        const val = args[idx];
-                        payload[input.name] = typeof val === 'bigint' ? val.toString() : val;
-                    });
-                }
+                } catch (_) {}
             }
+        }
+
+        if (eventName === 'VoteCast') {
+            payload.electionId = electionId;
+            payload.candidateId = args.candidateId !== undefined ? Number(args.candidateId) : Number(args[1]);
+            payload.nullifier = args.nullifier || args[2];
+            payload.submitter = args.submitter || args[3];
         }
 
         await db.query(
